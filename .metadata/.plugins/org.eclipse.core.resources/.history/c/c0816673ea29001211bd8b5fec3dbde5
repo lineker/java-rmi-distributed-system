@@ -1,0 +1,5 @@
+package TransactionManager;
+
+public class InvalidTransactionException extends Exception {
+
+}

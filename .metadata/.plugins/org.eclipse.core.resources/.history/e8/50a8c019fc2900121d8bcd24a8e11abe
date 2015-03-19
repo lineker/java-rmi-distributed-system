@@ -1,0 +1,42 @@
+package TransactionManager;
+
+import java.util.Hashtable;
+
+import ResImpl.RMHashtable;
+
+public class TransactionManager {
+
+	protected Hashtable<Integer,Hashtable<Integer,String>> m_transactionManager = new Hashtable<Integer,Hashtable<Integer,String>>();
+	
+	public TransactionManager()
+	{
+		
+	}
+	
+	public int countTransactions()
+	{
+		return m_transactionManager.size();
+	}
+	
+	public boolean containsTransaction(int TID)
+	{
+		return m_transactionManager.containsKey(TID);
+	}
+	
+	public int start()
+	{
+		int TID =  m_transactionManager.size()+1;
+		//make sure is unique
+		while(m_transactionManager.containsKey(TID))
+		{
+			TID++;
+		}
+		m_transactionManager.put(TID, new Hashtable<Integer,String>());
+		return TID;
+	}
+	
+	public boolean commit(int TID,RMHashtable rms)
+	{
+		
+	}
+}

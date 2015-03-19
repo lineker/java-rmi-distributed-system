@@ -1,0 +1,16 @@
+package TransactionManager;
+
+import java.util.Hashtable;
+
+public class TransactionManager {
+
+	protected Hashtable<Integer,Hashtable<Integer,String>> m_transactionManager = new Hashtable<Integer,Hashtable<Integer,String>>();
+	
+	public TransactionManager()
+	{
+		
+	}
+	
+	
+
+}

@@ -1,0 +1,27 @@
+#rmiregistry 3000 & --> middleware registry port (mimi)
+#rmiregistry 3001 & --> RM registry port (skinner)
+
+RMI
+
+If there change of code we have to compile in skinner
+
+3 connection to skinner: (RM)
+1. rmiregistry 3001 &
+2. runrmflight.sh runrmcar.sh runrmhotel.sh
+
+1 connection to mimi: (middleware)
+1. rmiregistry 3000 &
+2. runmiddle.sh
+
+lab computer
+1. run client.sh
+
+
+TCP
+
+flight -> willy
+hotel & car -> skinner
+mimi -> middleware
+local -> client
+
+

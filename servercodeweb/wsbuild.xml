@@ -1,0 +1,15 @@
+<project name="ServerCodeWeb RM Web Service Build" default="wsimport">
+ 
+    <target name="wsimport">
+    	
+    	<exec executable="wsimport">
+    	 
+            <arg line="-keep -s ./ -p rm.rmwebservice.client http://localhost:9898/MwWeb?wsdl"/>
+ 
+        </exec>  
+ 
+    </target>
+ 
+    
+ 
+</project>

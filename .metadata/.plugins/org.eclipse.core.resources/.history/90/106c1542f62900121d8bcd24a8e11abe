@@ -1,0 +1,602 @@
+package ResImpl;
+
+import LockManager.DeadlockException;
+import LockManager.LockManager;
+import LockManager.TrxnObj;
+import ResInterface.*;
+import TransactionManager.InvalidTransactionException;
+import TransactionManager.TransactionAbortedException;
+
+import java.util.*;
+import java.rmi.*;
+import java.lang.*;
+
+import java.rmi.registry.Registry;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.RemoteException;
+import java.rmi.server.UnicastRemoteObject;
+
+public class MiddlewareImpl implements ResourceManager{
+
+	static RMHashtable rms = new RMHashtable();
+	protected RMHashtable m_itemHT = new RMHashtable();
+	static int registryport = 3000;
+	static int registryRMport = 3001;
+	
+	protected Hashtable<Integer,HashMap<String,RMItem>> m_transaction = new Hashtable<Integer,HashMap<String,RMItem>>();
+	protected LockManager lockmanager = new LockManager();
+	
+	protected Hashtable<Integer,HashMap<Integer,String>> m_transactionManager = new Hashtable<Integer,HashMap<String,RMItem>>();
+	
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		if( args.length != 4 ) {
+			System.out.println("You must enter 1 argument for the port and 3 arguments of your active RMs");
+			System.exit(1);
+		}
+		String server = "localhost";
+		
+/*        if (args.length == 4) {
+            server = server + ":" + args[0];
+        } else// if (args.length != 0 &&  args.length != 1) 
+	{
+            System.err.println ("Wrong usage");
+            System.out.println("Usage: java middleware.middlewareImpl [port]");
+            System.exit(1);
+        }
+*/	 
+		 try 
+	     {
+			 // create a new Server object
+			 MiddlewareImpl obj = new MiddlewareImpl();
+			 int port = Integer.parseInt(args[0]);
+			 // dynamically generate the stub (client proxy)
+			 ResourceManager rm = (ResourceManager) UnicastRemoteObject.exportObject(obj, port);
+			 // Bind the remote object's stub in the registry
+			 Registry registry = LocateRegistry.getRegistry(registryport);
+			 registry.rebind("MyGroup25", rm);
+			 
+			 System.err.println("Server ready");
+	     } 
+		 catch (Exception e) 
+	     {
+			 System.err.println("Server exception: " + e.toString());
+			 e.printStackTrace();
+	     }
+		 
+	     // Create and install a security manager
+	     if (System.getSecurityManager() == null) {
+	     	System.setSecurityManager(new RMISecurityManager());
+	     }
+	     
+	    //create connection to customer RM
+	    Registry registry;
+	    String nom;
+	    int port;
+	    String[] str = new String[3];
+	    String[] nameOfRM = {args[1],args[2],args[3]};
+	   // String[] nameOfRM = {"Hotel","Flight","Car"};
+	    for (String name : nameOfRM) {
+	    	try 
+			{
+				//split the attribute into 3 parts: Hotel, IP and Port
+				str = name.split(":");
+				nom = str[0];
+				String serv = str[1];
+				port = Integer.parseInt(str[2]); //port registry of RMI
+				// get a reference to the rmiregistry
+				//use the following when server on different computer
+				//registry = LocateRegistry.getRegistry(server,port);
+				System.out.print("connection to RM at "+serv+":"+port);
+				registry = LocateRegistry.getRegistry(serv,registryRMport);
+				// get the proxy and the remote reference by rmiregistry lookup
+			    ResourceManager rm = (ResourceManager) registry.lookup("MyGroup25-"+nom);
+			    
+			    rms.put(nom, rm);
+			} 
+			catch (RemoteException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (NotBoundException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	    
+	}
+
+	public MiddlewareImpl()
+	{
+		
+	}
+	
+	// Reads a data item
+		private RMItem readData( int id, String key )
+		{	
+			Boolean lockgrant = false;
+			synchronized(lockmanager){
+				try {
+					lockgrant = lockmanager.Lock(id, key, TrxnObj.READ);
+				} catch (DeadlockException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			if(lockgrant)
+			{
+				synchronized(m_itemHT){
+					return (RMItem) m_itemHT.get(key);
+				}
+			}
+			/*TODO: Might have to change this to wait for a lock? */
+			return null; 
+		}
+
+		// Writes a data item
+		private void writeData( int id, String key, RMItem value )
+		{
+			Boolean lockgrant = false;
+			synchronized(lockmanager){
+				try {
+					lockgrant = lockmanager.Lock(id, key, TrxnObj.WRITE);
+				} catch (DeadlockException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			if(lockgrant)
+			{
+				System.out.println(id+" - lock granted");
+				HashMap<String, RMItem> l;
+				RMItem item;
+				synchronized(m_transaction){
+					l = m_transaction.get(id);
+				}
+				if(l == null) System.out.println("l null");
+				synchronized(m_itemHT){
+					item = (RMItem) m_itemHT.put(key, value); 	
+				}
+				if(!l.containsKey(key))
+				{
+					if(item == null) System.out.println("value null");
+					l.put(key, item);
+				}
+
+			}
+		}
+		
+		// Remove the item out of storage
+		protected RMItem removeData(int id, String key){
+			RMItem item = null;
+			Boolean lockgrant = false;
+			synchronized(lockmanager){
+				try {
+					lockgrant = lockmanager.Lock(id, key, TrxnObj.WRITE);
+				} catch (DeadlockException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			if(lockgrant)
+			{
+				HashMap<String, RMItem> l;
+				
+				synchronized(m_transaction){
+					l = m_transaction.get(id);
+				}
+				synchronized(m_itemHT){
+					item = (RMItem)m_itemHT.remove(key);
+				}
+				if(!l.containsKey(key))
+				{
+					l.put(key, item);
+				}
+			}
+			return item;
+		}
+		
+		public int start() throws RemoteException
+		{
+			int TID;
+			synchronized(m_transaction){
+				TID = m_transaction.size()+1;
+				m_transaction.put(TID, new HashMap<String,RMItem>());
+			}
+			System.out.println(m_transaction.size());
+			return TID;
+		}
+		
+		public boolean commit(int TID) throws RemoteException, TransactionAbortedException,
+	    InvalidTransactionException
+		{
+			Object n = m_transaction.remove(TID);
+			if(n == null)
+				return false;
+			return true;
+		}
+		
+		public void abort(int TID) throws RemoteException, InvalidTransactionException
+		{
+			System.out.println("Aborting Transaction : "+ TID);
+			//if find null for key remove from items hashtable
+			HashMap<String, RMItem> l = m_transaction.get(TID);
+			
+			 Iterator iter = l.keySet().iterator();
+
+			 while(iter.hasNext()) {
+
+				String key = (String) iter.next();
+		
+				RMItem item = l.get(key);
+		
+				System.out.println("Aborting item : "+ key);
+	            if(item == null)
+	            {
+	            	m_itemHT.remove(key);
+	            	System.out.println(key + " removed");
+	            }
+	            else
+	            {
+	            	m_itemHT.put(key, item);
+	            	System.out.println(key + " put back");
+	            }
+
+			}
+			
+	        lockmanager.UnlockAll(TID);
+		}
+		
+		public boolean shutdown() throws RemoteException
+		{
+			return true;
+		}
+	
+	@Override
+	public boolean addFlight(int id, int flightNum, int flightSeats,
+			int flightPrice) throws RemoteException {
+		System.out.println("addFlight on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Flight");
+		if(r != null)
+		{
+			return r.addFlight(id, flightNum, flightSeats, flightPrice);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean addCars(int id, String location, int numCars, int price)
+			throws RemoteException {
+		System.out.println("addCars on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Car");
+		if(r != null)
+		{
+			return r.addCars(id, location, numCars, price);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean addRooms(int id, String location, int numRooms, int price)
+			throws RemoteException {
+		System.out.println("addRooms on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Hotel");
+		if(r != null)
+		{
+			return r.addRooms(id, location, numRooms, price);
+		}
+		return false;
+	}
+
+	@Override
+	public int newCustomer(int id) throws RemoteException {
+		System.out.println("newCustomer on middleware");
+		Trace.info("INFO: RM::newCustomer(" + id + ") called" );
+		// Generate a globally unique ID for the new customer
+		int cid = Integer.parseInt( String.valueOf(id) +
+								String.valueOf(Calendar.getInstance().get(Calendar.MILLISECOND)) +
+								String.valueOf( Math.round( Math.random() * 100 + 1 )));
+		Customer cust = new Customer( cid );
+		writeData( id, cust.getKey(), cust );
+		Trace.info("RM::newCustomer(" + cid + ") returns ID=" + cid );
+		return cid;
+	}
+
+	@Override
+	public boolean newCustomer(int id, int customerID) throws RemoteException {
+		System.out.println("newCustomer on middleware");
+		Trace.info("INFO: RM::newCustomer(" + id + ", " + customerID + ") called" );
+		Customer cust = (Customer) readData( id, Customer.getKey(customerID) );
+		if( cust == null ) {
+			cust = new Customer(customerID);
+			writeData( id, cust.getKey(), cust );
+			Trace.info("INFO: RM::newCustomer(" + id + ", " + customerID + ") created a new customer" );
+			return true;
+		} else {
+			Trace.info("INFO: RM::newCustomer(" + id + ", " + customerID + ") failed--customer already exists");
+			return false;
+		} // else
+	}
+
+	@Override
+	public boolean deleteFlight(int id, int flightNum) throws RemoteException {
+		System.out.println("deleteFlight on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Flight");
+		if(r != null)
+		{
+			return r.deleteFlight(id, flightNum);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean deleteCars(int id, String location) throws RemoteException {
+		System.out.println("deleteCars on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Car");
+		if(r != null)
+		{
+			return r.deleteCars(id, location);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean deleteRooms(int id, String location) throws RemoteException {
+		System.out.println("deleteRooms on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Hotel");
+		if(r != null)
+		{
+			return r.deleteRooms(id, location);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean deleteCustomer(int id, int customerID) throws RemoteException {
+		Trace.info("RM::deleteCustomer(" + id + ", " + customerID + ") called" );
+		Customer cust = (Customer) readData( id, Customer.getKey(customerID) );
+		if( cust == null ) {
+			Trace.warn("RM::deleteCustomer(" + id + ", " + customerID + ") failed--customer doesn't exist" );
+			return false;
+		} else {			
+			// Increase the reserved numbers of all reservable items which the customer reserved. 
+			RMHashtable reservationHT = cust.getReservations();
+			for(Enumeration e = reservationHT.keys(); e.hasMoreElements();){		
+				String reservedkey = (String) (e.nextElement());
+				ReservedItem reserveditem = cust.getReservedItem(reservedkey);
+				Trace.info("RM: :deleteCustomer(" + id + ", " + customerID + ") has reserved " + reserveditem.getKey() + " " +  reserveditem.getCount() +  " times"  );
+				if(reserveditem.getKey().startsWith("flight"))
+				{
+					ResourceManager r = (ResourceManager) rms.get("Flight");
+					if(r != null)
+					{
+						r.removeReservation(id, reserveditem.getKey(), reserveditem.getCount());
+					}
+				}
+				else if(reserveditem.getKey().startsWith("room"))
+				{
+					ResourceManager r = (ResourceManager) rms.get("Hotel");
+					if(r != null)
+					{
+						r.removeReservation(id, reserveditem.getKey(), reserveditem.getCount());
+					}
+				}
+				else if(reserveditem.getKey().startsWith("car"))
+				{
+					ResourceManager r = (ResourceManager) rms.get("Car");
+					if(r != null)
+					{
+						r.removeReservation(id, reserveditem.getKey(), reserveditem.getCount());
+					}
+				}
+				
+				//call here
+				//Trace.info("RM::deleteCustomer(" + id + ", " + customerID + ") has reserved " + reserveditem.getKey() + "which is reserved" +  item.getReserved() +  " times and is still available " + item.getCount() + " times"  );
+			}
+			
+			// remove the customer from the storage
+			removeData(id, cust.getKey());
+			
+			Trace.info("RM::deleteCustomer(" + id + ", " + customerID + ") succeeded" );
+			return true;
+		} // if
+	}
+
+	@Override
+	public int queryFlight(int id, int flightNumber) throws RemoteException {
+		System.out.println("queryFlight on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Flight");
+		if(r != null)
+		{
+			return r.queryFlight(id, flightNumber);
+		}
+		return 0;
+	}
+
+	@Override
+	public int queryCars(int id, String location) throws RemoteException {
+		System.out.println("queryCars on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Car");
+		if(r != null)
+		{
+			return r.queryCars(id, location);
+		}
+		return 0;
+	}
+
+	@Override
+	public int queryRooms(int id, String location) throws RemoteException {
+		System.out.println("queryRooms on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Hotel");
+		if(r != null)
+		{
+			return r.queryRooms(id, location);
+		}
+		return 0;
+	}
+
+	@Override
+	public String queryCustomerInfo(int id, int customer)
+			throws RemoteException {
+		Trace.info("RM::queryCustomerInfo(" + id + ", " + customer + ") called" );
+
+		Customer cust = (Customer) readData( id, Customer.getKey(customer) );
+
+		if( cust == null ) {
+
+			Trace.warn("RM::queryCustomerInfo(" + id + ", " + customer + ") failed--customer doesn't exist" );
+
+			return "";   // NOTE: don't change this--WC counts on this value indicating a customer does not exist...
+
+		} else {
+
+				String s = cust.printBill();
+
+				Trace.info("RM::queryCustomerInfo(" + id + ", " + customer + "), bill follows..." );
+
+				System.out.println( s );
+
+				return s;
+
+		} 
+	}
+
+	@Override
+	public int queryFlightPrice(int id, int flightNumber)
+			throws RemoteException {
+		System.out.println("queryFlightPrice on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Flight");
+		if(r != null)
+		{
+			return r.queryFlightPrice(id, flightNumber);
+		}
+		return 0;
+	}
+
+	@Override
+	public int queryCarsPrice(int id, String location) throws RemoteException {
+		System.out.println("queryCarsPrice on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Car");
+		if(r != null)
+		{
+			return r.queryCarsPrice(id, location);
+		}
+		return 0;
+	}
+
+	@Override
+	public int queryRoomsPrice(int id, String location) throws RemoteException {
+		System.out.println("queryRoomsPrice on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Hotel");
+		if(r != null)
+		{
+			return r.queryRoomsPrice(id, location);
+		}
+		return 0;
+	}
+
+	@Override
+	public boolean reserveFlight(int id, int customer, int flightNumber)
+			throws RemoteException {
+		System.out.println("reserveFlight on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Flight");
+		if(r != null)
+		{
+			return r.reserveFlight(id, customer, flightNumber);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean reserveCar(int id, int customer, String location)
+			throws RemoteException {
+		System.out.println("reserveCar on middleware");
+		ResourceManager r = (ResourceManager) rms.get("Car");
+		if(r != null)
+		{
+			return r.reserveCar(id, customer, location);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean reserveRoom(int id, int customer, String locationd)
+			throws RemoteException {
+		ResourceManager r = (ResourceManager) rms.get("Hotel");
+		if(r != null)
+		{
+			return r.reserveRoom(id, customer, locationd);
+		}
+		return false;
+	}
+
+	@Override
+	public boolean itinerary(int id, int customer, Vector flightNumbers,
+			String location, boolean Car, boolean Room) throws RemoteException {
+			boolean roomReserved = true;
+			boolean carReserved = true;
+			boolean reserved = false;
+			if( Room == true ) {
+				roomReserved = reserveRoom(id,customer,location);
+				if( roomReserved == true ) {
+					System.out.println("your room has been reserved.");
+					reserved = true;
+				}
+			}
+			if( Car == true ) {
+				carReserved = reserveCar(id,customer,location);
+				if( carReserved == true ) {
+					System.out.println("your car has been reserved.");
+					reserved = true;
+				}
+			}
+			for(int i=0; i < flightNumbers.size(); i++) {
+				int flightNumber = Integer.parseInt(flightNumbers.get(i).toString());
+				boolean flight = reserveFlight(id,customer,flightNumber);
+				if( flight == false ) {
+					System.out.println("the flight with flightNumber=" + flightNumber + " could not be reserved");
+				}
+				if( flight == true ) //if any flight is reserved then set reserved to true 
+					reserved = true;
+			}
+			if( reserved == false ) // if this holds then there were no flights reserved, no cars nor rooms reserved
+				return false;
+		return true;
+	}
+
+	@Override
+	public boolean customerExist(int id, int customerID) throws RemoteException {
+		Customer cust = (Customer) readData( id, Customer.getKey(customerID));
+		if(cust != null)
+			return true;
+		return false;
+	}
+
+	@Override
+	public boolean customerReserveWrite(int id, String key, String location, int price,
+			int customerID) throws RemoteException {
+		Customer cust = (Customer) readData( id, Customer.getKey(customerID) );
+		cust.reserve( key, location, price);		
+		writeData( id, cust.getKey(), cust );
+		return false;
+	}
+	
+	public void dump(String RMname) throws RemoteException
+	{
+		if(RMname.equalsIgnoreCase("customer"))
+		{
+			this.m_itemHT.dump();
+		}else{
+			ResourceManager r = (ResourceManager) this.rms.get(RMname);
+			r.dump(RMname);
+		}
+	}
+	
+	public boolean removeReservation(int id, String s,int c) 
+	{
+		return true;
+	}
+
+	
+}

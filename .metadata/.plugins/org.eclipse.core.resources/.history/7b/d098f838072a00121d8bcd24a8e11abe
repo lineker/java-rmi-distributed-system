@@ -1,0 +1,141 @@
+package TransactionManager;
+
+import java.rmi.RemoteException;
+import java.util.Enumeration;
+import java.util.Hashtable;
+
+import ResImpl.RMHashtable;
+import ResInterface.ResourceManager;
+
+public class TransactionManager {
+
+	protected Hashtable<Integer,Hashtable<String,Integer>> m_transactionManager = new Hashtable<Integer,Hashtable<String,Integer>>();
+	
+	public TransactionManager()
+	{
+		
+	}
+	
+	public int countTransactions()
+	{
+		return m_transactionManager.size();
+	}
+	
+	public boolean containsTransaction(int TID)
+	{
+		return m_transactionManager.containsKey(TID);
+	}
+	
+	public int start()
+	{
+		int TID =  m_transactionManager.size()+1;
+		//make sure is unique
+		while(m_transactionManager.containsKey(TID))
+		{
+			TID++;
+		}
+		m_transactionManager.put(TID, new Hashtable<Integer,String>());
+		return TID;
+	}
+	
+	public boolean commit(int TID,RMHashtable rms) throws RemoteException, TransactionAbortedException, InvalidTransactionException
+	{
+		Hashtable<String,Integer> ht = m_transactionManager.get(TID);
+		//loop and send commit to each RM that 
+		Enumeration e = ht.keys();
+		boolean result = false;
+	    //iterate through Hashtable keys Enumeration
+	    while(e.hasMoreElements())
+	    {
+	    	String rm_name = (String)e.nextElement();
+	    	ResourceManager r = (ResourceManager) rms.get(rm_name);
+			if(r != null)
+			{
+				result  = r.commit(TID);
+			}
+			if(!result)
+			{
+				System.out.println("RM : "+rm_name+" failed to commit");
+				return false; //some RM failed to commit
+			}
+	  	}
+	    
+	  //clean transaction reference
+		Object n = m_transactionManager.remove(TID);
+		if(n == null)
+			return false;
+		return true;
+	}
+	
+	public void abort(int TID, RMHashtable rms) throws RemoteException, InvalidTransactionException
+	{
+		System.out.println("TM: Aborting Transaction : "+ TID);
+		Hashtable<String, Integer> ht = m_transactionManager.get(TID);
+		//loop and send abort to each RM that 
+		Enumeration e = ht.keys();
+		boolean result = false;
+	    //iterate through Hashtable keys Enumeration
+	    while(e.hasMoreElements())
+	    {
+	    	String rm_name = (String)e.nextElement();
+	    	ResourceManager r = (ResourceManager) rms.get(rm_name);
+	    	System.out.println(rm_name+" : Aborting Transaction : "+ TID);
+			if(r != null)
+			{
+				r.abort(TID);
+			}
+	  	}
+	    System.out.println("DONE - TM: Aborting Transaction : "+ TID);
+	  //remove transaction from transaction Manager
+		m_transactionManager.remove(TID);
+	}
+	
+	public void shutdown(RMHashtable rms) throws RemoteException
+	{
+
+		//loop and send abort to each RM that 
+		Enumeration e = rms.keys();
+		boolean result = false;
+	    //iterate through Hashtable keys Enumeration
+	    while(e.hasMoreElements())
+	    {
+	    	String rmname = (String)e.nextElement();
+	    	ResourceManager r = (ResourceManager) rms.get(rmname);
+			if(r != null)
+			{
+				r.shutdown();
+			}
+	    
+	    }
+	}
+	
+	public int getTransaction(int TID,String RMName, RMHashtable rms) throws RemoteException
+	{
+		Hashtable<String,Integer> ht = m_transactionManager.get(TID);
+		Enumeration e = ht.keys();
+		boolean result = false;
+	    //iterate through Hashtable keys Enumeration
+	    while(e.hasMoreElements())
+	    {
+	    	int tid_from_rm = (int)e.nextElement();
+	    	String rm_name = ht.get(tid_from_rm);
+	    	if(rm_name == RMName)
+	    	{
+	    		return tid_from_rm;
+
+	    	}
+	    	
+	  	}
+	    
+	    int rTID = -1;
+	    ResourceManager r = (ResourceManager) rms.get(RMName);
+		if(r != null)
+		{
+			rTID = r.start(TID); //enforce TID to be the same
+			ht.put(rTID, RMName);
+			System.out.println("new transaction on "+RMName+" TID: "+rTID);
+		}
+		return rTID;
+	}
+	
+}

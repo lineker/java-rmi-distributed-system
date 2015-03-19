@@ -1,0 +1,5 @@
+grant codeBase "file:/Users/tomazeli/BoxDocuments/School/COMP512/project/clientsrc" {
+    permission java.security.AllPermission;
+};
+
+

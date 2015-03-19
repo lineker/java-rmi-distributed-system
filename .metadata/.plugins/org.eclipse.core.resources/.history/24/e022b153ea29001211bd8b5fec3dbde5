@@ -1,0 +1,5 @@
+package TransactionManager;
+
+public class TransactionAbortedException extends Exception {
+
+}

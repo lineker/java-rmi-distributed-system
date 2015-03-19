@@ -1,0 +1,18 @@
+INDEX VERSION 1.126+/home/2009/ltomaz/comp512/.metadata/.plugins/org.eclipse.jdt.core
+2581496243.index
+1159935248.index
+2895934474.index
+922932567.index
+1279675953.index
+1961235293.index
+207581026.index
+3296295421.index
+3640646894.index
+1609788100.index
+954478507.index
+914835151.index
+2031085872.index
+2913048097.index
+534805504.index
+2755374105.index
+1453598739.index
